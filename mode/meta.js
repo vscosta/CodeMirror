@@ -96,6 +96,7 @@
     {name: "Pig", mime: "text/x-pig", mode: "pig", ext: ["pig"]},
     {name: "Plain Text", mime: "text/plain", mode: "null", ext: ["txt", "text", "conf", "def", "list", "log"]},
     {name: "PLSQL", mime: "text/x-plsql", mode: "sql", ext: ["pls"]},
+      {name: "Prolog", mime: "text/x-prolog", mode: "prolog", ext: ["yap", "pl", "prolog", "ypp"], alias: ["yap", "swi"]},
     {name: "Properties files", mime: "text/x-properties", mode: "properties", ext: ["properties", "ini", "in"], alias: ["ini", "properties"]},
     {name: "Python", mime: "text/x-python", mode: "python", ext: ["py", "pyw"]},
     {name: "Puppet", mime: "text/x-puppet", mode: "puppet", ext: ["pp"]},
