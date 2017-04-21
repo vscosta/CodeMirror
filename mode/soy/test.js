@@ -5,6 +5,12 @@
   var mode = CodeMirror.getMode({indentUnit: 2}, "soy");
   function MT(name) {test.mode(name, mode, Array.prototype.slice.call(arguments, 1));}
 
+  // Test of small keywords and words containing them.
+  MT('keywords-test',
+     '[keyword {] [keyword as] worrying [keyword and] notorious [keyword as]',
+     '    the Fandor-alias assassin, [keyword or]',
+     '    Corcand cannot fit [keyword in] [keyword }]');
+
   MT('let-test',
      '[keyword {template] [def .name][keyword }]',
      '  [keyword {let] [def $name]: [string "world"][keyword /}]',
@@ -60,10 +66,12 @@
      '');
 
   MT('foreach-scope-test',
+     '[keyword {@param] [def bar]: [variable-3 string][keyword }]',
      '[keyword {foreach] [def $foo] [keyword in] [variable-2&error $foos][keyword }]',
      '  [keyword {][variable-2 $foo][keyword }]',
      '[keyword {/foreach}]',
-     '[keyword {][variable-2&error $foo][keyword }]');
+     '[keyword {][variable-2&error $foo][keyword }]',
+     '[keyword {][variable-2 $bar][keyword }]');
 
   MT('foreach-ifempty-indent-test',
      '[keyword {foreach] [def $foo] [keyword in] [variable-2&error $foos][keyword }]',
@@ -71,5 +79,26 @@
      '[keyword {ifempty}]',
      '  nothing',
      '[keyword {/foreach}]',
+     '');
+
+  MT('nested-kind-test',
+     '[keyword {template] [def .foo] [attribute kind]=[string "html"][keyword }]',
+     '  [tag&bracket <][tag div][tag&bracket >]',
+     '    [keyword {call] [variable .bar][keyword }]',
+     '      [keyword {param] [attribute kind]=[string "js"][keyword }]',
+     '        [keyword var] [def bar] [operator =] [number 5];',
+     '      [keyword {/param}]',
+     '    [keyword {/call}]',
+     '  [tag&bracket </][tag div][tag&bracket >]',
+     '[keyword {/template}]',
+     '');
+
+  MT('allow-missing-colon-in-@param',
+     '[keyword {template] [def .foo][keyword }]',
+     '  [keyword {@param] [def showThing] [variable-3 bool][keyword }]',
+     '  [keyword {if] [variable-2 $showThing][keyword }]',
+     '    Yo!',
+     '  [keyword {/if}]',
+     '[keyword {/template}]',
      '');
 })();
