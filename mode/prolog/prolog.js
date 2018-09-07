@@ -18,7 +18,7 @@ CodeMirror.defineMode("prolog", function(conf, parserConfig) {
   }
 
   var cm_;
-  var editor_;
+  var curLine;
 
   /*******************************
    *       CONFIG DATA           *
@@ -47,41 +47,80 @@ CodeMirror.defineMode("prolog", function(conf, parserConfig) {
   var isNeck = /^(:-|-->)$/;
   var isControlOp = /^(,|;|->|\*->|\\+|\|)$/;
 
-
   /*******************************
    *        Linter Support        *
    *******************************/
 
   var errorFound = [];
-  var exports = [];
+  var exportedMsgs = [];
 
+  function getLine(stream) {
+    return stream.lineOracle.line;
+    //  return cm_.getDoc().getCursor().line;
+  }
 
   // var ed =
   // window.document.getElementsByClassName("CodeMirror")[0].CodeMirror.doc.getEditor();
 
+  function rmError(stream) {
+    if (cm_ == null)
+    return;
+    var doc = cm_.getDoc();
+    var l = getLine(stream);
+    // stream.lineOracle.line;
+    for (var i = 0; i < errorFound.length; i++) {
+      var elLine = doc.getLineNumber(errorFound[i].line);
+      if (elLine == null || l === elLine) {
+        errorFound.splice(i, 1);
+        i -= 1;
+        console.log(-elLine);
+      }
+    }
+  }
+
   function mkError(stream, severity, msg) {
-    var line = stream.lineOracle.line;
-var pstart = CodeMirror.Pos(line, stream.start);
-var pend = CodeMirror.Pos(line,stream.pos);
-    var found = errorFound.find(function(element) {
-                  return element.from == pstart &&
-                    element.to == pend;
-                });
+    if (stream.pos == 0)
+      return;
+    var l = cm_.getDoc().getLineHandle(getLine(stream));
+    var found = errorFound.find(function(
+        element) { return element.line === l && element.to == stream.pos; });
     if (!found) {
-      errorFound.push({
-      "from" : pstart,
-      "to" : pend,
+      console.log( getLine(stream) );
+    errorFound.push({
+        "line" : l,
+        "from" : stream.start,
+        "to" : stream.pos,
         severity : severity,
         message : msg
       });
     }
   }
 
+  function exportErrors(text) {
+    if (cm_ == null)
+      return;
+    var doc = cm_.getDoc();
 
-CodeMirror.registerHelper("lint", "prolog", function(text) {
-return errorFound;
-});
+    exportedMsgs.length = 0;
+    for (var i = 0; i < errorFound.length; i += 1) {
+      var e = errorFound[i];
+      var l = doc.getLineNumber(e.line);
+      if (l == null) {
+        errorFound.splice(i, 1);
+        i -= 1;
+        continue;
+      }
+      exportedMsgs.push({
+        "from" : CodeMirror.Pos(l, e.from),
+        "to" : CodeMirror.Pos(l, e.to),
+        "severity" : e.severity,
+        "message" : e.message
+      });
+    }
+    return exportedMsgs;
+  }
 
+  CodeMirror.registerHelper("lint", "prolog", exportErrors);
 
   /*******************************
    *     CHARACTER ESCAPES    *
@@ -379,16 +418,17 @@ return errorFound;
     if (isSymbolChar.test(ch)) {
       stream.eatWhile(isSymbolChar);
       var atom = stream.current();
-      if (atom == "." && peekSpace(stream)) {
+      if (atom == "." && (stream.eol() || peekSpace(stream))) {
         if (nesting(state)) {
-          mkError(stream, "error",
-                  "Clause over before closing all brackets");
+          mkError(stream, "error", "Clause over before closing all brackets");
+          state.nesting = [];
         }
-        state.headStart = true;
+  //  var start = cm_.getCursor("end");
+    //cm_.setBookmark(start, {"widget" : document.createTextNode("&bull;")});
         state.inBody = false;
         state.goalStart = true;
-
-        return ret("[fullstop", "def", atom);
+        stream.eat(ch);
+        return ret("fullstop", "def", atom);
 
       } else {
         if (atom === ":-" && state.headStart) {
@@ -434,7 +474,7 @@ return errorFound;
       state.tagName = word; /* tmp state extension */
       state.tagColumn = stream.column();
       return ret("tag", "tag", word);
-    } else if ((ch=word[0]) == "_") {
+    } else if ((ch = word[0]) == "_") {
       if (word.length == 1) {
         return ret("var", "variable-2", word);
       } else {
@@ -616,8 +656,8 @@ IfTrue
 
           CodeMirror.commands.prologEndClause =
               function(cm) {
-    if (!cm.state.nesting() && !isControlcm.state) {
-      var start = cm.getCursor("start");
+    if (!cm.state.nesting() && !isControl(cm.state)) {
+      var start = cm.getCursor("end");
       cm.setBookmark(start, {widget : document.createTextNode("&para;")});
       return;
     }
@@ -627,7 +667,6 @@ IfTrue
               CodeMirror.defineOption(
                   "prologKeys", true, function(cm, editor, prev) {
                     cm_ = cm;
-                    editor_ = editor;
                     if (prev && prev != CodeMirror.Init)
                       cm.removeKeyMap("prolog");
                     if (true) {
@@ -636,9 +675,8 @@ IfTrue
                         "Enter '('" : "prologStartIfThenElse",
                         "Enter '-' '>'" : "prologStartThen",
                         "Enter ';'" : "prologStartElse",
-                        "'.' Enter" : "prologEndClause",
-                        "'.' Space" : "prologEndClause",
-                        "Ctrl-L" : "refreshHighlight"
+                        "Ctrl-L" : "refreshHighlight",
+                        "Tab" : "indent"
                       };
                       cm.addKeyMap(map);
                     }
@@ -1281,24 +1319,32 @@ IfTrue
     token : function(stream, state) {
       // var nest;
 
-      if (state.curTerm == null && parserConfig.metainfo) {
-        state.curTerm = 0;
-        state.curToken = 0;
+      if (state.curTerm == null) {
+        if (parserConfig.metainfo) {
+          state.curTerm = 0;
+          state.curToken = 0;
+        }
       }
 
-      if (stream.eol())
+      if (stream.eol()) {
+        curLine++;
         delete state.commaAtEOL;
+      }
 
       if (state.tokenize == plTokenBase && stream.eatSpace()) {
         if (stream.eol())
           setArgAlignment(state);
         return null;
       }
+      if (state.curLine == null || state.pos == 0)
+        rmError(stream);
 
       var style = state.tokenize(stream, state);
 
-      if (stream.eol())
-        setArgAlignment(state);
+      if (stream.eol()) {
+        if (stream.pos > 0)
+          setArgAlignment(state);
+      }
 
       state.lastType = type;
 
