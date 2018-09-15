@@ -12,10 +12,10 @@
 "use strict";
 
 CodeMirror.defineMode("clojure", function (options) {
-  var commonAtoms = ["false", "nil", "true"];
-  var commonSpecialForms = [".", "catch", "def", "do", "if", "monitor-enter",
+  var atoms = ["false", "nil", "true"];
+  var specialForms = [".", "catch", "def", "do", "if", "monitor-enter",
       "monitor-exit", "new", "quote", "recur", "set!", "throw", "try", "var"];
-  var commonCoreSymbols = ["*", "*'", "*1", "*2", "*3", "*agent*",
+  var coreSymbols = ["*", "*'", "*1", "*2", "*3", "*agent*",
       "*allow-unresolved-vars*", "*assert*", "*clojure-version*",
       "*command-line-args*", "*compile-files*", "*compile-path*",
       "*compiler-options*", "*data-readers*", "*default-data-reader-fn*", "*e",
@@ -137,61 +137,78 @@ CodeMirror.defineMode("clojure", function (options) {
       "with-local-vars", "with-meta", "with-open", "with-out-str",
       "with-precision", "with-redefs", "with-redefs-fn", "xml-seq", "zero?",
       "zipmap"];
-  var commonIndentSymbols = [
-      "assoc", "binding", "bound-fn", "case", "catch", "comment", "cond",
-      "condp", "def", "defmethod", "defn", "defprotocol", "defrecord",
-      "defstruct", "deftype", "do", "doseq", "dotimes", "doto", "extend",
-      "extend-protocol", "extend-type", "fn", "for", "future", "if", "if-let",
-      "if-not", "let", "letfn", "locking", "loop", "ns", "proxy", "reify",
-      "struct-map", "try", "when", "when-first", "when-let", "when-not",
-      "when-some", "while", "with-open", "with-precision"];
+  var haveBodyParameter = [
+      "->", "->>", "as->", "binding", "bound-fn", "case", "catch", "comment",
+      "cond", "cond->", "cond->>", "condp", "def", "definterface", "defmethod",
+      "defn", "defmacro", "defprotocol", "defrecord", "defstruct", "deftype",
+      "do", "doseq", "dotimes", "doto", "extend", "extend-protocol",
+      "extend-type", "fn", "for", "future", "if", "if-let", "if-not", "if-some",
+      "let", "letfn", "locking", "loop", "ns", "proxy", "reify", "struct-map",
+      "some->", "some->>", "try", "when", "when-first", "when-let", "when-not",
+      "when-some", "while", "with-bindings", "with-bindings*", "with-in-str",
+      "with-loading-context", "with-local-vars", "with-meta", "with-open",
+      "with-out-str", "with-precision", "with-redefs", "with-redefs-fn"];
 
   CodeMirror.registerHelper("hintWords", "clojure",
-      commonAtoms.concat(commonSpecialForms, commonCoreSymbols));
+    [].concat(atoms, specialForms, coreSymbols));
 
-  var atom = createLookupMap(commonAtoms);
-  var specialForm = createLookupMap(commonSpecialForms);
-  var coreSymbol = createLookupMap(commonCoreSymbols);
-  var indentSymbol = createLookupMap(commonIndentSymbols);
-  var assumeBody = /^(?:def|with)[^\/]+$|\/(?:def|with)/;
+  var atom = createLookupMap(atoms);
+  var specialForm = createLookupMap(specialForms);
+  var coreSymbol = createLookupMap(coreSymbols);
+  var hasBodyParameter = createLookupMap(haveBodyParameter);
   var numberLiteral = /^[+\-]?\d+(?:(?:N|(?:[eE][+\-]?\d+))|(?:\.?\d*(?:M|(?:[eE][+\-]?\d+))?)|\/\d+|[xX][0-9a-fA-F]+|r[0-9a-zA-Z]+)?/;
-  var symbol = /[!#'*+\-.\/:<>?_\w\xa1-\uffff]/;
-
-  var tokenType;
+  var symbolCharacter = /[!#$&'*+\-.\/:<=>?_|\w\xa1-\uffff]/;
 
   function base(stream, state) {
-    if (stream.eatSpace()) {tokenType = "space"; return null;}
-    if (stream.match(numberLiteral)) return "number";
+    if (stream.eatSpace()) return ["space", null];
+    if (stream.match(numberLiteral)) return [null, "number"];
 
     var ch = stream.next();
 
-    if (ch === "\\") {stream.next(); readSymbol(stream); return "string-2";}
+    if (ch === "\\") {stream.next(); readSymbol(stream); return [null, "string-2"];}
     if (ch === '"') return (state.tokenize = inString)(stream, state);
-    if (/[(\[{]/.test(ch)) {tokenType = "open"; return "bracket";}
-    if (/[)\]}]/.test(ch)) {tokenType = "close"; return "bracket";}
-    if (ch === ";") {stream.skipToEnd(); tokenType = "space"; return "comment";}
-    if (/[#'@^`~]/.test(ch)) return "meta";
+    if (is(ch, /[(\[{]/)) return ["open", "bracket"];
+    if (is(ch, /[)\]}]/)) return ["close", "bracket"];
+    if (ch === ";") {stream.skipToEnd(); return ["space", "comment"];}
+    if (is(ch, /[#'@^`~]/)) return [null, "meta"];
 
-    var name = readSymbol(stream);
-    tokenType = "symbol";
+    var symbol = readSymbol(stream);
 
-    if (atom.propertyIsEnumerable(name) || name.charAt(0) === ":") return "atom";
-    if (specialForm.propertyIsEnumerable(name) ||
-      coreSymbol.propertyIsEnumerable(name)) return "keyword";
-    if (state.lastToken === "(") return "builtin";  // head symbol
+    if (symbol === "comment" && state.lastToken === "(")
+      return (state.tokenize = inComment)(stream, state);
+    if (is(symbol, atom) || symbol.charAt(0) === ":") return ["symbol", "atom"];
+    if (is(symbol, specialForm) || is(symbol, coreSymbol)) return ["symbol", "keyword"];
+    if (state.lastToken === "(") return ["symbol", "builtin"]; // other operator
 
-    return "variable";
+    return ["symbol", "variable"];
   }
 
   function inString(stream, state) {
     var escaped = false, next;
 
     while (next = stream.next()) {
-      if (next === '"' && !escaped) { state.tokenize = base; break; }
+      if (next === '"' && !escaped) {state.tokenize = base; break;}
       escaped = !escaped && next === "\\";
     }
 
-    return "string";
+    return [null, "string"];
+  }
+
+  function inComment(stream, state) {
+    var parenthesisCount = 1;
+    var next;
+
+    while (next = stream.next()) {
+      if (next === ")") parenthesisCount--;
+      if (next === "(") parenthesisCount++;
+      if (parenthesisCount === 0) {
+        stream.backUp(1);
+        state.tokenize = base;
+        break;
+      }
+    }
+
+    return ["space", "comment"];
   }
 
   function readSymbol(stream) {
@@ -199,7 +216,7 @@ CodeMirror.defineMode("clojure", function (options) {
 
     while (ch = stream.next()) {
       if (ch === "\\") stream.next();
-      else if (!symbol.test(ch)) {stream.backUp(1); break;}
+      else if (!is(ch, symbolCharacter)) {stream.backUp(1); break;}
     }
 
     return stream.current();
@@ -211,6 +228,11 @@ CodeMirror.defineMode("clojure", function (options) {
     for (var i = 0; i < words.length; ++i) obj[words[i]] = true;
 
     return obj;
+  }
+
+  function is(value, test) {
+    if (test instanceof RegExp) return test.test(value);
+    if (test instanceof Object) return test.propertyIsEnumerable(value);
   }
 
   return {
@@ -226,26 +248,26 @@ CodeMirror.defineMode("clojure", function (options) {
       if (stream.sol() && (typeof state.ctx.indentTo !== "number"))
         state.ctx.indentTo = state.ctx.start + 1;
 
-      tokenType = null;
-      var style = state.tokenize(stream, state);
+      var typeStylePair = state.tokenize(stream, state);
+      var type = typeStylePair[0];
+      var style = typeStylePair[1];
+      var current = stream.current();
 
-      if (tokenType !== "space") {
+      if (type !== "space") {
         if (state.lastToken === "(" && state.ctx.indentTo === null) {
-          if (tokenType === "symbol" &&
-              (indentSymbol.propertyIsEnumerable(stream.current()) ||
-               assumeBody.test(stream.current())))
+          if (type === "symbol" && is(current, hasBodyParameter))
             state.ctx.indentTo = state.ctx.start + options.indentUnit;
           else state.ctx.indentTo = "next";
         } else if (state.ctx.indentTo === "next") {
           state.ctx.indentTo = stream.column();
         }
 
-        state.lastToken = stream.current();
+        state.lastToken = current;
       }
 
-      if (tokenType === "open")
+      if (type === "open")
         state.ctx = {prev: state.ctx, start: stream.column(), indentTo: null};
-      else if (tokenType === "close") state.ctx = state.ctx.prev || state.ctx;
+      else if (type === "close") state.ctx = state.ctx.prev || state.ctx;
 
       return style;
     },
